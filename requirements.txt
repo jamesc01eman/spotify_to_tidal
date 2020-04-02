@@ -1,0 +1,3 @@
+spotipy==2.10.0
+tidalapi==0.6.4
+pyyaml==5.3.1
