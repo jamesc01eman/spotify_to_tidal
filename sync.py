@@ -196,13 +196,14 @@ def sync_list(spotify_session, tidal_session, playlists):
         print("Syncing playlist: {} --> {}".format(spotify_playlist['name'], tidal_playlist.name))
         sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist)
 
-def get_playlists_from_spotify(spotify_session):
+def get_playlists_from_spotify(spotify_session, config):
     # get all the user playlists from the Spotify account
     playlists = []
     spotify_results = spotify_session.user_playlists(config['spotify']['username'])
+    exclude_list = set([x.split(':')[-1] for x in config.get('excluded_playlists', [])])
     while True:
         for spotify_playlist in spotify_results['items']:
-            if spotify_playlist['owner']['id'] == config['spotify']['username']:
+            if spotify_playlist['owner']['id'] == config['spotify']['username'] and not spotify_playlist['id'] in exclude_list:
                 playlists.append((spotify_playlist['id'], None))
         # move to the next page of results if there are still playlists remaining
         if spotify_results['next']:
@@ -232,4 +233,4 @@ if __name__ == '__main__':
         sync_list(spotify_session, tidal_session, get_playlist_from_config(config))
     else:
         # otherwise just use the user playlists in the Spotify account
-        sync_list(spotify_session, tidal_session, get_playlists_from_spotify(spotify_session))
+        sync_list(spotify_session, tidal_session, get_playlists_from_spotify(spotify_session, config))
