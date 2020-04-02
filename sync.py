@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import requests
 import sys
 import spotipy
@@ -217,17 +218,20 @@ def get_playlists_from_config(config):
     return [(item['spotify_id'], item['tidal_id']) for item in config['sync_playlists']]
 
 if __name__ == '__main__':
-    with open('config.yml', 'r') as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', default='config.yml', help='location of the config file')
+    parser.add_argument('--uri', help='synchronize a specific URI instead of the one in the config')
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     spotify_session = open_spotify_session(config['spotify'])
     tidal_session = open_tidal_session(config['tidal'])
     if not tidal_session.check_login():
         sys.exit("Could not connect to Tidal")
-    if len(sys.argv) > 1:
+    if args.uri:
         # if a playlist ID is explicitly provided as a command line argument then use that
-        # todo: use argparse library
-
-        sync_list(spotify_session, tidal_session, [(sys.argv[1], None)])
+        sync_list(spotify_session, tidal_session, [(args.uri, None)])
     elif config.get('sync_playlists', None):
         # if the config contains a sync_playlists list of mappings then use that
         sync_list(spotify_session, tidal_session, get_playlist_from_config(config))
