@@ -78,31 +78,37 @@ def get_tidal_playlists_dict(tidal_session):
     return {playlist.name: playlist for playlist in tidal_playlists}
 
 def set_tidal_playlist(session, playlist_id, track_ids):
-    playlist = session.get_playlist(playlist_id) # we want to fetch the playlist as late as possible so we can be sure that 
+    chunk_size = 25 # add/delete tracks in chunks of no more than this many tracks
 
     # erases any items in the given playlist, then adds all of the tracks given in track_ids
     # had to hack this together because the API doesn't include it
-    etag = session.request('GET','playlists/%s/tracks' % playlist.id).headers['ETag']
-    headers = {'if-none-match' : etag}
     request_params = {
         'sessionId': session.session_id,
         'countryCode': session.country_code,
         'limit': '999',
     }
+    def get_headers():
+        etag = session.request('GET','playlists/%s/tracks' % playlist_id).headers['ETag']
+        return {'if-none-match' : etag}
     # clear all old items from playlist
-    if playlist.num_tracks:
-        track_index_string = ",".join([str(x) for x in range(playlist.num_tracks)])
+    while True:
+        playlist = session.get_playlist(playlist_id)
+        if not playlist.num_tracks:
+            break
+        track_index_string = ",".join([str(x) for x in range(min(chunk_size, playlist.num_tracks))])
         url = urljoin(session._config.api_location, 'playlists/{}/tracks/{}'.format(playlist.id, track_index_string))
-        result = requests.request('DELETE', url, params=request_params, headers=headers)
+        result = requests.request('DELETE', url, params=request_params, headers=get_headers())
         result.raise_for_status()
     # add all new items to the playlist
-    if track_ids:
+    offset = 0
+    while offset < len(track_ids):
         data = {
-            'trackIds' : ",".join([str(x) for x in track_ids]),
-            'toIndex' : 0
+            'trackIds' : ",".join([str(x) for x in track_ids[offset:offset+chunk_size]]),
+            'toIndex' : offset
         }
+        offset += chunk_size
         url = urljoin(session._config.api_location, 'playlists/{}/tracks'.format(playlist.id))
-        result = requests.request('POST', url, params=request_params, data=data, headers=headers)
+        result = requests.request('POST', url, params=request_params, data=data, headers=get_headers())
         result.raise_for_status()
 
 def create_tidal_playlist(session, name):
