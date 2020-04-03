@@ -8,7 +8,7 @@ import sys
 import spotipy
 import tidalapi
 import time
-import tqdm
+from tqdm import tqdm
 from urllib.parse import urljoin
 import yaml
 
@@ -82,10 +82,10 @@ def get_tidal_playlists_dict(tidal_session):
     return {playlist.name: playlist for playlist in tidal_playlists}
 
 def set_tidal_playlist(session, playlist_id, track_ids):
-    chunk_size = 25 # add/delete tracks in chunks of no more than this many tracks
-
     # erases any items in the given playlist, then adds all of the tracks given in track_ids
     # had to hack this together because the API doesn't include it
+
+    chunk_size = 25 # add/delete tracks in chunks of no more than this many tracks
     request_params = {
         'sessionId': session.session_id,
         'countryCode': session.country_code,
@@ -94,26 +94,36 @@ def set_tidal_playlist(session, playlist_id, track_ids):
     def get_headers():
         etag = session.request('GET','playlists/%s/tracks' % playlist_id).headers['ETag']
         return {'if-none-match' : etag}
+
     # clear all old items from playlist
+    playlist = session.get_playlist(playlist_id)
+    progress = tqdm(desc="Erasing existing tracks from Tidal playlist", total=playlist.num_tracks)
     while True:
-        playlist = session.get_playlist(playlist_id)
         if not playlist.num_tracks:
             break
         track_index_string = ",".join([str(x) for x in range(min(chunk_size, playlist.num_tracks))])
         url = urljoin(session._config.api_location, 'playlists/{}/tracks/{}'.format(playlist.id, track_index_string))
         result = requests.request('DELETE', url, params=request_params, headers=get_headers())
         result.raise_for_status()
+        progress.update(min(chunk_size, playlist.num_tracks))
+        playlist = session.get_playlist(playlist_id)
+    progress.close()
+
     # add all new items to the playlist
     offset = 0
+    progress = tqdm(desc="Adding new tracks to Tidal playlist", total=len(track_ids))
     while offset < len(track_ids):
+        count = min(chunk_size, len(track_ids) - offset)
         data = {
             'trackIds' : ",".join([str(x) for x in track_ids[offset:offset+chunk_size]]),
             'toIndex' : offset
         }
-        offset += chunk_size
+        offset += count
         url = urljoin(session._config.api_location, 'playlists/{}/tracks'.format(playlist.id))
         result = requests.request('POST', url, params=request_params, data=data, headers=get_headers())
         result.raise_for_status()
+        progress.update(count)
+    progress.close()
 
 def create_tidal_playlist(session, name):
     result = session.request('POST','users/%s/playlists' % session.user.id ,data={'title': name})
@@ -124,39 +134,53 @@ def repeat_on_exception(function, *args, remaining=5):
     try:
         function(*args)
     except:
-        if not remaining:
+        if remaining:
+            print("Error, retrying {} more times".format(remaining))
+        else:
             print("Repeated error calling the function '{}' with the following arguments:".format(function.__name__))
             print(args)
             raise
         time.sleep(5)
         repeat_on_exception(function, *args, remaining=remaining-1)
 
-def sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist, config):
-    source_results = spotify_session.playlist_tracks(spotify_playlist['id'], fields="next,items(track(name,album(name,artists),artists,track_number,duration_ms,id))")
-    tidal_track_ids = []
-    while True:
-        source_tracks = [s['track'] for s in source_results['items']]
-        with Pool(processes=16) as process_pool:
-            tidal_results = []
-            for result in tqdm.tqdm(process_pool.imap(partial(tidal_search, tidal_session=tidal_session), source_tracks), total=len(source_tracks)):
-                tidal_results.append(result)
-        for index, result in enumerate(tidal_results):
-            source_track = source_tracks[index]
-            if result:
-                tidal_track_ids.append(result.id)
-                #print("Found track: {} - {}{}".format(result.artist.name, result.name, " ({})".format(result.version) if result.version else ""), end='\r')
-                #sys.stdout.write("\033[K")
-            else:
-                color = ('\033[91m', '\033[0m')
-                print(color[0] + "Could not find track {}: {} - {}".format(source_track['id'], ",".join([a['name'] for a in source_track['artists']]), source_track['name']) + color[1])
+def _enumerate_wrapper(value_tuple, function, **kwargs):
+    # just a wrapper which accepts a tuple from enumerate and returns the index back as the first argument
+    index, value = value_tuple
+    return (index, function(value, **kwargs))
 
+def call_async_with_progress(function, values, description, num_processes, **kwargs):
+    results = len(values)*[None]
+    with Pool(processes=50) as process_pool:
+        for index, result in tqdm(process_pool.imap_unordered(partial(_enumerate_wrapper, function=function, **kwargs),
+                                  enumerate(values)), total=len(values), desc=description):
+            results[index] = result
+    return results
+
+def get_tracks_from_spotify_playlist(spotify_session, spotify_playlist):
+    output = []
+    results = spotify_session.playlist_tracks(spotify_playlist['id'], fields="next,items(track(name,album(name,artists),artists,track_number,duration_ms,id))")
+    while True:
+        output.extend([r['track'] for r in results['items']])
         # move to the next page of results if there are still tracks remaining in the playlist
-        if source_results['next']:
-            source_results = spotify_session.next(source_results)
+        if results['next']:
+            results = spotify_session.next(results)
         else:
-            break
-    #print("Adding the following track IDs to the playlist:")
-    #print(tidal_track_ids)
+            return output
+
+def sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist, config):
+    tidal_track_ids = []
+    spotify_tracks = get_tracks_from_spotify_playlist(spotify_session, spotify_playlist)
+    print("")
+    task_description = "Searching Tidal for {} tracks in Spotify playlist '{}'".format(len(spotify_tracks), spotify_playlist['name'])
+    tidal_tracks = call_async_with_progress(tidal_search, spotify_tracks, task_description, config.get('subprocesses', 50), tidal_session=tidal_session)
+    for index, tidal_track in enumerate(tidal_tracks):
+        spotify_track = spotify_tracks[index]
+        if tidal_track:
+            tidal_track_ids.append(tidal_track.id)
+        else:
+            color = ('\033[91m', '\033[0m')
+            print(color[0] + "Could not find track {}: {} - {}".format(spotify_track['id'], ",".join([a['name'] for a in spotify_track['artists']]), spotify_track['name']) + color[1])
+
     repeat_on_exception(set_tidal_playlist, tidal_session, tidal_playlist.id, tidal_track_ids)
 
 def open_spotify_session(config):
@@ -200,8 +224,6 @@ def sync_list(spotify_session, tidal_session, playlists):
         else:
             # otherwise create a new playlist
             tidal_playlist = create_tidal_playlist(tidal_session, spotify_playlist['name'])
-        print("")
-        print("Syncing playlist: {} --> {}".format(spotify_playlist['name'], tidal_playlist.name))
         sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist, config)
 
 def get_playlists_from_spotify(spotify_session, config):
