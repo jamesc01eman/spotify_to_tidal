@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+from functools import partial
+from multiprocessing import Pool
 import requests
 import sys
 import spotipy
 import tidalapi
 import time
+import tqdm
 from urllib.parse import urljoin
 import yaml
 
@@ -58,7 +61,7 @@ def artist_match(tidal_track, spotify_track):
 def match(tidal_track, spotify_track):
     return duration_match(tidal_track, spotify_track) and name_match(tidal_track, spotify_track) and artist_match(tidal_track, spotify_track)
 
-def tidal_search(tidal_session, spotify_track):
+def tidal_search(spotify_track, tidal_session):
     # search for album name and first album artist
     if 'album' in spotify_track and 'artists' in spotify_track['album'] and len(spotify_track['album']['artists']):
         album_result = tidal_session.search('album', simple(spotify_track['album']['name']) + " " + simple(spotify_track['album']['artists'][0]['name']))
@@ -135,7 +138,7 @@ def sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playli
         source_tracks = [s['track'] for s in source_results['items']]
         with Pool(processes=16) as process_pool:
             tidal_results = []
-            for result in tqdm.tqdm(process_pool.imap(partial(tidal_search_pickle_safe, tidal_session=tidal_session), source_tracks), total=len(source_tracks)):
+            for result in tqdm.tqdm(process_pool.imap(partial(tidal_search, tidal_session=tidal_session), source_tracks), total=len(source_tracks)):
                 tidal_results.append(result)
         for index, result in enumerate(tidal_results):
             source_track = source_tracks[index]
@@ -199,7 +202,7 @@ def sync_list(spotify_session, tidal_session, playlists):
             tidal_playlist = create_tidal_playlist(tidal_session, spotify_playlist['name'])
         print("")
         print("Syncing playlist: {} --> {}".format(spotify_playlist['name'], tidal_playlist.name))
-        sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist)
+        sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist, config)
 
 def get_playlists_from_spotify(spotify_session, config):
     # get all the user playlists from the Spotify account
