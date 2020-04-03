@@ -128,17 +128,21 @@ def repeat_on_exception(function, *args, remaining=5):
         time.sleep(5)
         repeat_on_exception(function, *args, remaining=remaining-1)
 
-def sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist):
+def sync_playlist(spotify_session, tidal_session, spotify_playlist, tidal_playlist, config):
     source_results = spotify_session.playlist_tracks(spotify_playlist['id'], fields="next,items(track(name,album(name,artists),artists,track_number,duration_ms,id))")
     tidal_track_ids = []
     while True:
-        for source_result in source_results['items']:
-            source_track = source_result['track']
-            result = tidal_search(tidal_session, source_track)
+        source_tracks = [s['track'] for s in source_results['items']]
+        with Pool(processes=16) as process_pool:
+            tidal_results = []
+            for result in tqdm.tqdm(process_pool.imap(partial(tidal_search_pickle_safe, tidal_session=tidal_session), source_tracks), total=len(source_tracks)):
+                tidal_results.append(result)
+        for index, result in enumerate(tidal_results):
+            source_track = source_tracks[index]
             if result:
                 tidal_track_ids.append(result.id)
-                print("Found track: {} - {}{}".format(result.artist.name, result.name, " ({})".format(result.version) if result.version else ""), end='\r')
-                sys.stdout.write("\033[K")
+                #print("Found track: {} - {}{}".format(result.artist.name, result.name, " ({})".format(result.version) if result.version else ""), end='\r')
+                #sys.stdout.write("\033[K")
             else:
                 color = ('\033[91m', '\033[0m')
                 print(color[0] + "Could not find track {}: {} - {}".format(source_track['id'], ",".join([a['name'] for a in source_track['artists']]), source_track['name']) + color[1])
