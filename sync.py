@@ -234,7 +234,7 @@ if __name__ == '__main__':
         sync_list(spotify_session, tidal_session, [(args.uri, None)])
     elif config.get('sync_playlists', None):
         # if the config contains a sync_playlists list of mappings then use that
-        sync_list(spotify_session, tidal_session, get_playlist_from_config(config))
+        sync_list(spotify_session, tidal_session, get_playlists_from_config(config))
     else:
         # otherwise just use the user playlists in the Spotify account
         sync_list(spotify_session, tidal_session, get_playlists_from_spotify(spotify_session, config))
