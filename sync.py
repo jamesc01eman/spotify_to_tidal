@@ -150,7 +150,7 @@ def _enumerate_wrapper(value_tuple, function, **kwargs):
 
 def call_async_with_progress(function, values, description, num_processes, **kwargs):
     results = len(values)*[None]
-    with Pool(processes=50) as process_pool:
+    with Pool(processes=num_processes) as process_pool:
         for index, result in tqdm(process_pool.imap_unordered(partial(_enumerate_wrapper, function=function, **kwargs),
                                   enumerate(values)), total=len(values), desc=description):
             results[index] = result
