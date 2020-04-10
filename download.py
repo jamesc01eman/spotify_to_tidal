@@ -8,19 +8,24 @@ import tidalapi
 from tqdm import tqdm
 import yaml
 
-def track_file_name(track):
-    return "{} - {}{}.{}".format(track.artist.name, track.name, " (%)"%track.version if track.version else "", "m4a")
+def track_file_name(track, url):
+    source_extension = url.split('/')[-1].split('?')[0].split('.')[-1]
+    extension = 'm4a' if source_extension == 'mp4' else source_extension
+    return "{} - {}{}.{}".format(track.artist.name, track.name, " (%)"%track.version if track.version else "", extension)
 
 def download_track(tidal_session, track, folder):
-    file_path = Path(folder) / track_file_name(track)
+    media_url = tidal_session.get_media_url(track.id)
+    file_path = Path(folder) / track_file_name(track, media_url)
     if file_path.exists():
         return
     with tqdm.wrapattr(open(file_path, 'wb+'), "write", miniters=1, desc = "Downloading {}".format(str(file_path.name))) as fout:
-        for chunk in requests.get(tidal_session.get_media_url(track.id)):
+        for chunk in requests.get(media_url):
             fout.write(chunk)
 
 def open_tidal_session(config):
-    session = tidalapi.Session()
+    quality_mapping = {'low': tidalapi.Quality.low, 'high': tidalapi.Quality.high, 'lossless': tidalapi.Quality.lossless}
+    quality = quality_mapping[config.get('quality', 'high').lower()]
+    session = tidalapi.Session(tidalapi.Config(quality=quality))
     session.login(config['username'], config['password'])
     return session
 
