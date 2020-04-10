@@ -15,7 +15,6 @@ def download_track(tidal_session, track, folder):
     file_path = Path(folder) / track_file_name(track)
     if file_path.exists():
         return
-    data = requests.get(tidal_session.get_media_url(track.id))
     with tqdm.wrapattr(open(file_path, 'wb+'), "write", miniters=1, desc = "Downloading {}".format(str(file_path.name))) as fout:
         for chunk in requests.get(tidal_session.get_media_url(track.id)):
             fout.write(chunk)
