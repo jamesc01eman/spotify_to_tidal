@@ -33,19 +33,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('uri', help='URI of the song or playlist to download')
     parser.add_argument('--config', default='config.yml', help='location of the config file')
-    parser.add_argument('--output_folder', help='Folder to save the file to', default=Path.cwd())
+    parser.add_argument('--output_folder', help='Folder to save the file to')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     tidal_session = open_tidal_session(config['tidal'])
+    output_folder = args.output_folder if args.output_folder else config.get('save_path', Path.cwd())
     if not tidal_session.check_login():
         sys.exit("Could not connect to Tidal")
-    if not Path(args.output_folder).exists():
-        sys.exit("Path '{}' does not exist".format(args.output_folder))
+    if not Path(output_folder).exists():
+        sys.exit("Path '{}' does not exist".format(output_folder))
     id = args.uri.split('/')[-1]
     if '-' in id:
         sys.error("Playlists are not currently supported")
     else:
         track = tidal_session.get_track(id)
-        download_track(tidal_session, track, args.output_folder)
+        download_track(tidal_session, track, output_folder)
