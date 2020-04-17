@@ -129,10 +129,10 @@ def create_tidal_playlist(session, name):
     result = session.request('POST','users/%s/playlists' % session.user.id ,data={'title': name})
     return session.get_playlist(result.json()['uuid'])
 
-def repeat_on_exception(function, *args, remaining=5):
+def repeat_on_exception(function, *args, remaining=5, **kwargs):
     # utility to repeat calling the function up to 5 times if an exception is thrown
     try:
-        function(*args)
+        return function(*args, **kwargs)
     except:
         if remaining:
             print("Error, retrying {} more times".format(remaining))
@@ -141,12 +141,12 @@ def repeat_on_exception(function, *args, remaining=5):
             print(args)
             raise
         time.sleep(5)
-        repeat_on_exception(function, *args, remaining=remaining-1)
+        return repeat_on_exception(function, *args, remaining=remaining-1, **kwargs)
 
 def _enumerate_wrapper(value_tuple, function, **kwargs):
     # just a wrapper which accepts a tuple from enumerate and returns the index back as the first argument
     index, value = value_tuple
-    return (index, function(value, **kwargs))
+    return (index, repeat_on_exception(function, value, **kwargs))
 
 def call_async_with_progress(function, values, description, num_processes, **kwargs):
     results = len(values)*[None]
