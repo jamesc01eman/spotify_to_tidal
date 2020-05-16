@@ -11,7 +11,8 @@ import yaml
 def track_file_name(track, url):
     source_extension = url.split('/')[-1].split('?')[0].split('.')[-1]
     extension = 'm4a' if source_extension == 'mp4' else source_extension
-    return "{} - {}{}.{}".format(track.artist.name, track.name, " (%)"%track.version if track.version else "", extension)
+    name = "{} - {}{}.{}".format(track.artist.name, track.name, " ({})".format(track.version) if track.version else "", extension)
+    return name
 
 def download_track(tidal_session, track, folder):
     media_url = tidal_session.get_media_url(track.id)
